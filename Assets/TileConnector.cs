@@ -1,46 +1,53 @@
-using UnityEngine;
+ï»¿using UnityEngine;
 using System.Collections.Generic;
 
-public class TileConnectorSegmentsHV : MonoBehaviour
+public class TileConnector : MonoBehaviour
 {
     [Header("Detect")]
-    public LayerMask tileLayer;
+    public LayerMask tileLayer = ~0;
     public float checkRadius = 0.35f;
 
     [Header("Line")]
     public float lineWidth = 0.08f;
-    public float edgeInset = 0.02f; // kenardan çok az içeri
+    public float edgeInset = 0.02f;
     public int capVerts = 4, cornerVerts = 4;
     public string sortingLayer = "Default";
     public int orderInLayer = 0;
 
     [Header("Auto Tiling")]
     public bool autoTile = true;
-    public float worldUnitsPerTile = 0.5f; // 1 tekrarýn dünya birimi
-    public bool standardizeUV = true;      // UV’yi eksene göre sabitle (flip engellenir)
+    public float worldUnitsPerTile = 0.5f;
+    public bool standardizeUV = true;
 
-    [Header("Materials (Sprite shader kullan!)")]
-    public Material matHorizontal;   // yatay segmentlerde
-    public Material matVertical;     // dikey segmentlerde
-    public Material matDiagonal;     // opsiyonel (çapraz)
+    [Header("Materials (Sprite shader!)")]
+    public Material matHorizontal;
+    public Material matVertical;
+    public Material matDiagonal;
 
     [Header("Color (tek renk)")]
-    public Color lineColor = Color.white; // tüm segmentlerde ayný tint
+    public Color lineColor = Color.white;
 
-    private bool isDrawing;
-    private readonly List<Transform> tiles = new();
-    private readonly List<LineRenderer> segments = new();
+    [Header("Selection behaviour")]
+    public bool deselectOnNewPath = true;   // yeni Ã§izime baÅŸlayÄ±nca
+    public bool deselectOnFinish  = false;  // mouse bÄ±rakÄ±nca
+
+    [Header("Debug")]
+    public bool debug = false;
+
+    bool isDrawing;
+    readonly List<Transform> tiles           = new();
+    readonly List<LineRenderer> segments     = new();
+    readonly List<TileViewDual> selectedViews = new();   // <<< seÃ§ili gÃ¶rselleri tut
 
     void Update()
     {
-        if (Input.GetMouseButtonDown(0))
-            Begin();
-
-        if (isDrawing && Input.GetMouseButton(0))
-            TrackTilesUnderMouse();
-
+        if (Input.GetMouseButtonDown(0)) Begin();
+        if (isDrawing && Input.GetMouseButton(0)) TrackTilesUnderMouse();
         if (Input.GetMouseButtonUp(0))
+        {
             isDrawing = false;
+            if (deselectOnFinish) DeselectAll();
+        }
     }
 
     void Begin()
@@ -48,40 +55,52 @@ public class TileConnectorSegmentsHV : MonoBehaviour
         isDrawing = true;
         ClearSegments();
         tiles.Clear();
+        if (deselectOnNewPath) DeselectAll();            // <<< eski seÃ§imleri kapat
     }
 
     void TrackTilesUnderMouse()
     {
-        Vector3 m = Camera.main.ScreenToWorldPoint(Input.mousePosition);
-        m.z = 0f;
+        // ekran -> dÃ¼nya ve ray
+        Vector3 mp = Input.mousePosition;
+        var ray = Camera.main.ScreenPointToRay(mp);
+        RaycastHit2D rh = Physics2D.GetRayIntersection(ray, Mathf.Infinity, tileLayer);
 
-        Collider2D hit = Physics2D.OverlapCircle(m, checkRadius, tileLayer);
-        if (!hit) return;
+        Vector3 m = Camera.main.ScreenToWorldPoint(mp); m.z = 0f;
+        Collider2D ch = rh.collider ? rh.collider : Physics2D.OverlapPoint(m, tileLayer);
+        if (!ch) ch = Physics2D.OverlapCircle(m, checkRadius, tileLayer);
 
-        Transform t = hit.transform;
+        if (debug) Debug.Log(ch ? $"HIT: {ch.transform.name}" : "NO HIT (layer/collider?)");
+        if (!ch) return;
 
-        // Ayný tile'ý art arda ekleme
-        if (tiles.Count == 0 || tiles[^1] != t)
+        // child'a Ã§arpsak da tile root'una Ã§Ä±k
+        Transform root = GetTileRoot(ch.transform);
+
+        // aynÄ± tile'Ä± Ã¼st Ã¼ste ekleme
+        if (tiles.Count == 0 || tiles[^1] != root)
         {
-            // if (tiles.Contains(t)) return; // geri dönüþü istemezsen aç
-            tiles.Add(t);
+            tiles.Add(root);
+
+            // <<< SEÃ‡Ä°M GÃ–RSELÄ°: TileViewDual Ã§aÄŸÄ±r
+            var view = root.GetComponent<TileViewDual>() ?? root.GetComponentInChildren<TileViewDual>(true);
+            if (view)
+            {
+                view.SetSelected(true, animate:true);
+                if (!selectedViews.Contains(view)) selectedViews.Add(view);
+            }
 
             if (tiles.Count >= 2)
             {
                 Transform prev = tiles[^2];
                 Transform curr = tiles[^1];
 
-                // Çýkýþ-giriþ kenar noktalarý (merkezden kenara kýrpma)
-                Vector2 prevHalf = GetHalfExtents(prev, edgeInset);
-                Vector2 currHalf = GetHalfExtents(curr, edgeInset);
+                Vector2 prevHalf = GetHalfExtentsSmart(prev, edgeInset);
+                Vector2 currHalf = GetHalfExtentsSmart(curr, edgeInset);
 
                 Vector3 pA = EdgePointFromTo(prev.position, curr.position, prevHalf);
                 Vector3 pB = EdgePointFromTo(curr.position, prev.position, currHalf);
 
-                // Yönüne göre materyal seç
                 Material pickedMat = PickMaterial(pA, pB);
 
-                // --- UV sabitleme: yatayda soldan->saða, dikeyde aþaðýdan->yukarýya ---
                 bool reversed = false;
                 if (standardizeUV)
                 {
@@ -106,12 +125,37 @@ public class TileConnectorSegmentsHV : MonoBehaviour
         }
     }
 
-    // ---- Yön bazlý materyal seçimi ----
+    // --- helpers ---
+    Transform GetTileRoot(Transform t)
+    {
+        var dual = t.GetComponentInParent<TileViewDual>(true);
+        if (dual) return dual.transform;
+
+        var sr = t.GetComponentInParent<SpriteRenderer>(true);
+        if (sr) return sr.transform;
+
+        var col = t.GetComponentInParent<Collider2D>(true);
+        if (col) return col.transform;
+
+        return t;
+    }
+
+    Vector2 GetHalfExtentsSmart(Transform t, float inset)
+    {
+        var col = t.GetComponentInChildren<Collider2D>(true);
+        if (col) { var e = col.bounds.extents; return new Vector2(Mathf.Max(0, e.x - inset), Mathf.Max(0, e.y - inset)); }
+
+        var sr = t.GetComponentInChildren<SpriteRenderer>(true);
+        if (sr) { var e = sr.bounds.extents; return new Vector2(Mathf.Max(0, e.x - inset), Mathf.Max(0, e.y - inset)); }
+
+        return new Vector2(0.5f, 0.5f);
+    }
+
     Material PickMaterial(Vector3 a, Vector3 b)
     {
         Vector2 d = b - a;
         float ax = Mathf.Abs(d.x), ay = Mathf.Abs(d.y);
-        const float bias = 1.2f; // küçük açý sapmalarýný yok say
+        const float bias = 1.2f;
 
         if (ax > ay * bias) return matHorizontal ? matHorizontal : matVertical;
         if (ay > ax * bias) return matVertical ? matVertical : matHorizontal;
@@ -134,13 +178,11 @@ public class TileConnectorSegmentsHV : MonoBehaviour
         lr.sortingLayerName = sortingLayer;
         lr.sortingOrder = orderInLayer;
 
-        // Her segmente kendi material instance'ý
         Material baseMat = srcMat != null ? srcMat : new Material(Shader.Find("Sprites/Default"));
         var inst = new Material(baseMat);
-        if (inst.HasProperty("_Color")) inst.color = Color.white; // materyal beyaz kalsýn
+        if (inst.HasProperty("_Color")) inst.color = Color.white;
         lr.material = inst;
 
-        // Tek renk tint
         lr.startColor = lineColor;
         lr.endColor   = lineColor;
 
@@ -150,6 +192,13 @@ public class TileConnectorSegmentsHV : MonoBehaviour
         return lr;
     }
 
+    void DeselectAll()
+    {
+        foreach (var v in selectedViews)
+            if (v) v.SetSelected(false, animate:true);
+        selectedViews.Clear();
+    }
+
     void ClearSegments()
     {
         foreach (var lr in segments)
@@ -157,22 +206,6 @@ public class TileConnectorSegmentsHV : MonoBehaviour
         segments.Clear();
     }
 
-    Vector2 GetHalfExtents(Transform t, float inset)
-    {
-        var sr = t.GetComponent<SpriteRenderer>();
-        var col = t.GetComponent<Collider2D>();
-        Vector2 ext;
-
-        if (sr) ext = sr.bounds.extents;
-        else if (col) ext = col.bounds.extents;
-        else ext = new Vector2(0.5f, 0.5f);
-
-        ext.x = Mathf.Max(0f, ext.x - inset);
-        ext.y = Mathf.Max(0f, ext.y - inset);
-        return ext;
-    }
-
-    // from merkezinden to yönüne giderken dikdörtgen sýnýrýna temas noktasý
     Vector3 EdgePointFromTo(Vector3 fromCenter, Vector3 toCenter, Vector2 half)
     {
         Vector2 dir = (toCenter - fromCenter);
@@ -187,7 +220,6 @@ public class TileConnectorSegmentsHV : MonoBehaviour
         return fromCenter + new Vector3(offset.x, offset.y, 0f);
     }
 
-    // Çizgi uzunluðuna göre texture tiling (+ ters yön için negatif tiling)
     void AutoTileByLength(LineRenderer lr, float unitsPerTile, bool reversed)
     {
         if (!lr.material || !lr.material.mainTexture) return;
@@ -197,7 +229,7 @@ public class TileConnectorSegmentsHV : MonoBehaviour
             len += Vector3.Distance(lr.GetPosition(i - 1), lr.GetPosition(i));
 
         float tiles = Mathf.Max(1f, len / Mathf.Max(0.001f, unitsPerTile));
-        if (!standardizeUV && reversed) tiles = -tiles;  // normalize kapalýysa flip’i düzelt
+        if (!standardizeUV && reversed) tiles = -tiles;
 
         var scale = lr.material.mainTextureScale;
         scale.x = tiles;
@@ -205,6 +237,5 @@ public class TileConnectorSegmentsHV : MonoBehaviour
         lr.material.mainTexture.wrapMode = TextureWrapMode.Repeat;
     }
 
-    // helpers
     void Swap(ref Vector3 a, ref Vector3 b) { var t = a; a = b; b = t; }
 }
