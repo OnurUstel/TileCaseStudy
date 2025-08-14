@@ -35,9 +35,9 @@ public class TileConnector : MonoBehaviour
     public bool debug = false;
 
     bool isDrawing;
-    readonly List<Transform> tiles           = new();
-    readonly List<LineRenderer> segments     = new();
-    readonly List<TileViewDual> selectedViews = new();   // <<< seçili görselleri tut
+    readonly List<Transform> tiles            = new();
+    readonly List<LineRenderer> segments      = new();
+    readonly List<TileViewDual> selectedViews = new();   // seçili görselleri tut
 
     void Update()
     {
@@ -55,7 +55,7 @@ public class TileConnector : MonoBehaviour
         isDrawing = true;
         ClearSegments();
         tiles.Clear();
-        if (deselectOnNewPath) DeselectAll();            // <<< eski seçimleri kapat
+        if (deselectOnNewPath) DeselectAll();
     }
 
     void TrackTilesUnderMouse()
@@ -80,7 +80,7 @@ public class TileConnector : MonoBehaviour
         {
             tiles.Add(root);
 
-            // <<< SEÇİM GÖRSELİ: TileViewDual çağır
+            // SEÇİM GÖRSELİ: TileViewDual çağır
             var view = root.GetComponent<TileViewDual>() ?? root.GetComponentInChildren<TileViewDual>(true);
             if (view)
             {
@@ -165,6 +165,17 @@ public class TileConnector : MonoBehaviour
     LineRenderer CreateSegment(Material srcMat)
     {
         GameObject go = new GameObject("LineSegment");
+
+        // *** Layer ataması (LineCamera için) ***
+        int lineLayer = LayerMask.NameToLayer("Line");
+        if (lineLayer >= 0)
+        {
+            go.layer = lineLayer;
+            // ileride child eklenirse hepsi aynı layer’da kalsın
+            foreach (Transform tr in go.GetComponentsInChildren<Transform>(true))
+                tr.gameObject.layer = lineLayer;
+        }
+
         var lr = go.AddComponent<LineRenderer>();
 
         lr.positionCount = 2;

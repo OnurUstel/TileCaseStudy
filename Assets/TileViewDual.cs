@@ -2,12 +2,17 @@
 using DG.Tweening;
 
 [DisallowMultipleComponent]
-[RequireComponent(typeof(BoxCollider2D))]               // ← Root'ta collider şart
+[RequireComponent(typeof(BoxCollider2D))]
 public class TileViewDual : MonoBehaviour
 {
     [Header("Child visuals")]
     [SerializeField] GameObject unselectedGO;   // Active = true
     [SerializeField] GameObject selectedGO;     // Active = false
+
+    [Header("Glow (2D / SpriteRenderer + URP/Particles/Unlit Additive)")]
+    [SerializeField] GameObject glowHalo;       // SpriteRenderer + GlowMat_Particle + Layer=TileGlow
+    [SerializeField] float glowScale = 1.08f;   // tile’dan biraz büyük
+    [SerializeField] string glowLayerName = "TileGlow";
 
     [Header("Tween")]
     [SerializeField] float bumpScale = 1.12f;
@@ -15,8 +20,9 @@ public class TileViewDual : MonoBehaviour
     [SerializeField] Ease  ease      = Ease.OutBack;
 
     [Header("Collider fit")]
-    [SerializeField] bool  fitColliderToSprite = true;   // child sprite'a göre boyutla
-    [SerializeField] float colliderPadding     = 0.00f;  // kenarlardan ek boşluk
+    [SerializeField] bool  fitColliderToSprite = true;
+    [SerializeField] float colliderPadding     = 0.00f;
+
     [SerializeField] bool  isSelected = false;
 
     Vector3 baseScale = Vector3.one;
@@ -25,30 +31,25 @@ public class TileViewDual : MonoBehaviour
 
     void Reset()
     {
-        // güvenli başlangıç
-        if (transform.localScale.sqrMagnitude < 1e-6f) transform.localScale = Vector3.one;
-        baseScale = transform.localScale;
-
+        SafeInitScale();
         col = GetComponent<BoxCollider2D>();
         col.isTrigger = true;
         FitCollider();
 
-        if (unselectedGO) unselectedGO.SetActive(!isSelected);
-        if (selectedGO)   selectedGO.SetActive(isSelected);
+        ApplySelection(isSelected, animate:false);
+        SetupGlowObject();    // <-- glow kur
     }
 
     void Awake()
     {
-        if (transform.localScale.sqrMagnitude < 1e-6f) transform.localScale = Vector3.one;
-        baseScale = transform.localScale;
+        SafeInitScale();
 
         col = GetComponent<BoxCollider2D>();
         col.isTrigger = true;
         if (fitColliderToSprite) FitCollider();
 
-        // sadece aktif/pasif ayarla (scale'a dokunma)
-        if (unselectedGO) unselectedGO.SetActive(!isSelected);
-        if (selectedGO)   selectedGO.SetActive(isSelected);
+        SetupGlowObject();           // <-- glow kur
+        ApplySelection(isSelected, animate:false);
     }
 
 #if UNITY_EDITOR
@@ -56,22 +57,28 @@ public class TileViewDual : MonoBehaviour
     {
         if (!Application.isPlaying)
         {
+            SafeInitScale();
+
             col = GetComponent<BoxCollider2D>();
             if (col) col.isTrigger = true;
             if (fitColliderToSprite) FitCollider();
 
-            if (unselectedGO) unselectedGO.SetActive(!isSelected);
-            if (selectedGO)   selectedGO.SetActive(isSelected);
+            SetupGlowObject();       // <-- editörde de doğru layer/scale
+            ApplySelection(isSelected, animate:false);
         }
     }
 #endif
 
     public void SetSelected(bool sel, bool animate = true)
+        => ApplySelection(sel, animate);
+
+    void ApplySelection(bool sel, bool animate)
     {
         isSelected = sel;
 
         if (unselectedGO) unselectedGO.SetActive(!sel);
         if (selectedGO)   selectedGO.SetActive(sel);
+        if (glowHalo)     glowHalo.SetActive(sel);     // <-- sadece burada aç/kapat
 
         if (animate) Pulse();
         else
@@ -97,7 +104,6 @@ public class TileViewDual : MonoBehaviour
         var sr = GetComponentInChildren<SpriteRenderer>(true);
         if (!col || !sr) return;
 
-        // Not: root'un scale=1, rotasyon=0 varsayımıyla çalışır (önerilen).
         Vector2 size = sr.bounds.size;
         size.x = Mathf.Max(0.01f, size.x - 2f * colliderPadding);
         size.y = Mathf.Max(0.01f, size.y - 2f * colliderPadding);
@@ -106,5 +112,33 @@ public class TileViewDual : MonoBehaviour
         Vector3 worldCenter = sr.bounds.center;
         Vector2 localOffset = transform.InverseTransformPoint(worldCenter);
         col.offset = localOffset;
+    }
+
+    // --- helpers ---
+    void SafeInitScale()
+    {
+        if (transform.localScale.sqrMagnitude < 1e-6f) transform.localScale = Vector3.one;
+        baseScale = transform.localScale;
+    }
+
+    void SetupGlowObject()
+    {
+        if (!glowHalo) return;
+
+        // Layer = TileGlow (Overlay kamera sadece bunu görecek)
+        int glowLayer = LayerMask.NameToLayer(glowLayerName);
+        if (glowLayer >= 0) glowHalo.layer = glowLayer;
+
+        // Ölçek ve başlangıç durumu
+        glowHalo.transform.localScale = Vector3.one * glowScale;
+        glowHalo.SetActive(isSelected);
+
+        // SpriteRenderer varsa küçük güvenlik ayarı: ortada sorting arkada kalsın
+        var sr = glowHalo.GetComponent<SpriteRenderer>();
+        if (sr != null)
+        {
+            // genelde tile’dan düşük order kullanırsın; istersen burada dokunma
+            sr.sortingOrder = Mathf.Min(sr.sortingOrder, 0); 
+        }
     }
 }

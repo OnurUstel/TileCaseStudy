@@ -11,8 +11,8 @@ TagManager:
   - Tile
   - Water
   - UI
-  - 
-  - 
+  - TileGlow
+  - Line
   - 
   - 
   - 
@@ -40,6 +40,9 @@ TagManager:
   m_SortingLayers:
   - name: Default
     uniqueID: 0
+    locked: 0
+  - name: effects
+    uniqueID: 3153842727
     locked: 0
   m_RenderingLayers:
   - Default
