@@ -15,6 +15,11 @@ public class TileConnector : MonoBehaviour
     public string sortingLayer = "Default";
     public int orderInLayer = 0;
 
+    [Header("Extra Shorten (edgeInset sonrası)")]
+    public bool  enableShorten   = true;
+    [Range(0f, 0.9f)]
+    public float shortenPercent  = 0.20f;   // segment uzunluğunun yüzdesi (toplam), uçlardan eşit pay
+
     [Header("Auto Tiling")]
     public bool autoTile = true;
     public float worldUnitsPerTile = 0.5f;
@@ -102,15 +107,18 @@ public class TileConnector : MonoBehaviour
                 Vector2 prevHalf = GetHalfExtentsSmart(prev, edgeInset);
                 Vector2 currHalf = GetHalfExtentsSmart(curr, edgeInset);
 
-                // Kenarlara dayanmış gerçek uçlar
+                // Kenarlara dayanmış uçlar
                 Vector3 pA = EdgePointFromTo(prev.position, curr.position, prevHalf);
                 Vector3 pB = EdgePointFromTo(curr.position, prev.position, currHalf);
 
-                // ▶ Animasyon YÖNÜ için ORİJİNAL noktaları sakla (prev -> curr)
+                // Ek kısaltma uygula (edgeInset sonrasında)
+                if (enableShorten) ApplyAdditionalShorten(ref pA, ref pB, shortenPercent);
+
+                // ▶ Animasyon YÖNÜ (her zaman prev -> curr)
                 Vector3 animStart = pA;
                 Vector3 animEnd   = pB;
 
-                // ▼ UV/tiling standardizasyonu için kopyalar (gerekirse swap)
+                // ▼ UV/tiling standardizasyonu (kopyalar)
                 Vector3 aStd = pA;
                 Vector3 bStd = pB;
                 bool reversedForUV = false;
@@ -134,7 +142,7 @@ public class TileConnector : MonoBehaviour
 
                 if (revealEnabled)
                 {
-                    // Görünmez başla: her iki nokta da animStart
+                    // Görünmez başla
                     lr.SetPosition(0, animStart);
                     lr.SetPosition(1, animStart);
 
@@ -148,7 +156,6 @@ public class TileConnector : MonoBehaviour
                     if (autoTile) AutoTileByLength(lr, worldUnitsPerTile, reversedForUV);
                 }
 
-                // NOT: AutoTile animasyon sonunda da çalışıyor (Routine içinde).
                 lr.gameObject.name = $"LineSegment_{segments.Count}";
                 segments.Add(lr);
             }
@@ -174,7 +181,6 @@ public class TileConnector : MonoBehaviour
         lr.SetPosition(0, a);
         lr.SetPosition(1, b);
 
-        // UV/tiling: yön standardizasyonundan bağımsız — uzunluğa göre ayarlanır
         if (autoTile) AutoTileByLength(lr, worldUnitsPerTile, reversed:false);
     }
 
@@ -295,6 +301,25 @@ public class TileConnector : MonoBehaviour
 
         Vector2 offset = dir * t;
         return fromCenter + new Vector3(offset.x, offset.y, 0f);
+    }
+
+    void ApplyAdditionalShorten(ref Vector3 a, ref Vector3 b, float totalPercent)
+    {
+        // totalPercent: 0..0.9 arası -> toplam kısalma yüzdesi
+        totalPercent = Mathf.Clamp01(totalPercent);
+        if (totalPercent <= 0f) return;
+
+        float len = Vector3.Distance(a, b);
+        if (len <= 1e-6f) return;
+
+        // Her uçtan eşit pay: toplamın yarısını uçlara uygula
+        float cutPerEnd = (len * totalPercent) * 0.5f;
+        cutPerEnd = Mathf.Min(cutPerEnd, len * 0.49f); // güvenlik
+
+        Vector3 dir = (b - a) / len;
+
+        a += dir * cutPerEnd;
+        b -= dir * cutPerEnd;
     }
 
     void AutoTileByLength(LineRenderer lr, float unitsPerTile, bool reversed)
