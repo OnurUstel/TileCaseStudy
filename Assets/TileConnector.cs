@@ -1,4 +1,5 @@
 ﻿using UnityEngine;
+using System.Collections;
 using System.Collections.Generic;
 
 public class TileConnector : MonoBehaviour
@@ -28,8 +29,14 @@ public class TileConnector : MonoBehaviour
     public Color lineColor = Color.white;
 
     [Header("Selection behaviour")]
-    public bool deselectOnNewPath = true;   // yeni çizime başlayınca
-    public bool deselectOnFinish  = false;  // mouse bırakınca
+    public bool deselectOnNewPath = true;
+    public bool deselectOnFinish  = false;
+
+    [Header("Draw Reveal FX")]
+    public bool  revealEnabled          = true;
+    public float revealDelayPerSegment  = 0.03f;          // Inspector
+    public float revealDuration         = 0.12f;          // Inspector
+    public AnimationCurve revealCurve   = AnimationCurve.EaseInOut(0,0,1,1); // Inspector
 
     [Header("Debug")]
     public bool debug = false;
@@ -37,7 +44,9 @@ public class TileConnector : MonoBehaviour
     bool isDrawing;
     readonly List<Transform> tiles            = new();
     readonly List<LineRenderer> segments      = new();
-    readonly List<TileViewDual> selectedViews = new();   // seçili görselleri tut
+    readonly List<TileViewDual> selectedViews = new();
+
+    int revealIndex = 0;
 
     void Update()
     {
@@ -55,12 +64,12 @@ public class TileConnector : MonoBehaviour
         isDrawing = true;
         ClearSegments();
         tiles.Clear();
+        revealIndex = 0;
         if (deselectOnNewPath) DeselectAll();
     }
 
     void TrackTilesUnderMouse()
     {
-        // ekran -> dünya ve ray
         Vector3 mp = Input.mousePosition;
         var ray = Camera.main.ScreenPointToRay(mp);
         RaycastHit2D rh = Physics2D.GetRayIntersection(ray, Mathf.Infinity, tileLayer);
@@ -72,15 +81,12 @@ public class TileConnector : MonoBehaviour
         if (debug) Debug.Log(ch ? $"HIT: {ch.transform.name}" : "NO HIT (layer/collider?)");
         if (!ch) return;
 
-        // child'a çarpsak da tile root'una çık
         Transform root = GetTileRoot(ch.transform);
 
-        // aynı tile'ı üst üste ekleme
         if (tiles.Count == 0 || tiles[^1] != root)
         {
             tiles.Add(root);
 
-            // SEÇİM GÖRSELİ: TileViewDual çağır
             var view = root.GetComponent<TileViewDual>() ?? root.GetComponentInChildren<TileViewDual>(true);
             if (view)
             {
@@ -96,33 +102,80 @@ public class TileConnector : MonoBehaviour
                 Vector2 prevHalf = GetHalfExtentsSmart(prev, edgeInset);
                 Vector2 currHalf = GetHalfExtentsSmart(curr, edgeInset);
 
+                // Kenarlara dayanmış gerçek uçlar
                 Vector3 pA = EdgePointFromTo(prev.position, curr.position, prevHalf);
                 Vector3 pB = EdgePointFromTo(curr.position, prev.position, currHalf);
 
-                Material pickedMat = PickMaterial(pA, pB);
+                // ▶ Animasyon YÖNÜ için ORİJİNAL noktaları sakla (prev -> curr)
+                Vector3 animStart = pA;
+                Vector3 animEnd   = pB;
 
-                bool reversed = false;
+                // ▼ UV/tiling standardizasyonu için kopyalar (gerekirse swap)
+                Vector3 aStd = pA;
+                Vector3 bStd = pB;
+                bool reversedForUV = false;
+
                 if (standardizeUV)
                 {
-                    Vector2 d = pB - pA;
+                    Vector2 d = bStd - aStd;
                     if (Mathf.Abs(d.x) >= Mathf.Abs(d.y))
                     {
-                        if (pA.x > pB.x) { Swap(ref pA, ref pB); reversed = true; }
+                        if (aStd.x > bStd.x) { Swap(ref aStd, ref bStd); reversedForUV = true; }
                     }
                     else
                     {
-                        if (pA.y > pB.y) { Swap(ref pA, ref pB); reversed = true; }
+                        if (aStd.y > bStd.y) { Swap(ref aStd, ref bStd); reversedForUV = true; }
                     }
                 }
 
-                LineRenderer lr = CreateSegment(pickedMat);
-                lr.SetPosition(0, pA);
-                lr.SetPosition(1, pB);
-                segments.Add(lr);
+                Material pickedMat = PickMaterial(aStd, bStd);
 
-                if (autoTile) AutoTileByLength(lr, worldUnitsPerTile, reversed);
+                LineRenderer lr = CreateSegment(pickedMat);
+
+                if (revealEnabled)
+                {
+                    // Görünmez başla: her iki nokta da animStart
+                    lr.SetPosition(0, animStart);
+                    lr.SetPosition(1, animStart);
+
+                    float delay = revealDelayPerSegment * revealIndex++;
+                    StartCoroutine(RevealSegmentRoutine(lr, animStart, animEnd, delay, revealDuration));
+                }
+                else
+                {
+                    lr.SetPosition(0, animStart);
+                    lr.SetPosition(1, animEnd);
+                    if (autoTile) AutoTileByLength(lr, worldUnitsPerTile, reversedForUV);
+                }
+
+                // NOT: AutoTile animasyon sonunda da çalışıyor (Routine içinde).
+                lr.gameObject.name = $"LineSegment_{segments.Count}";
+                segments.Add(lr);
             }
         }
+    }
+
+    IEnumerator RevealSegmentRoutine(LineRenderer lr, Vector3 a, Vector3 b, float delay, float duration)
+    {
+        if (delay > 0f) yield return new WaitForSeconds(delay);
+
+        float t = 0f;
+        while (t < duration)
+        {
+            t += Time.deltaTime;
+            float u = Mathf.Clamp01(t / Mathf.Max(0.0001f, duration));
+            if (revealCurve != null) u = revealCurve.Evaluate(u);
+
+            lr.SetPosition(0, a);
+            lr.SetPosition(1, Vector3.Lerp(a, b, u));
+            yield return null;
+        }
+
+        lr.SetPosition(0, a);
+        lr.SetPosition(1, b);
+
+        // UV/tiling: yön standardizasyonundan bağımsız — uzunluğa göre ayarlanır
+        if (autoTile) AutoTileByLength(lr, worldUnitsPerTile, reversed:false);
     }
 
     // --- helpers ---
@@ -166,12 +219,10 @@ public class TileConnector : MonoBehaviour
     {
         GameObject go = new GameObject("LineSegment");
 
-        // *** Layer ataması (LineCamera için) ***
         int lineLayer = LayerMask.NameToLayer("Line");
         if (lineLayer >= 0)
         {
             go.layer = lineLayer;
-            // ileride child eklenirse hepsi aynı layer’da kalsın
             foreach (Transform tr in go.GetComponentsInChildren<Transform>(true))
                 tr.gameObject.layer = lineLayer;
         }
@@ -194,8 +245,7 @@ public class TileConnector : MonoBehaviour
         if (inst.HasProperty("_Color")) inst.color = Color.white;
         lr.material = inst;
 
-        lr.startColor = lineColor;
-        lr.endColor   = lineColor;
+        SetLineUniformColor(lr, lineColor);
 
         if (lr.material.mainTexture != null)
             lr.material.mainTexture.wrapMode = TextureWrapMode.Repeat;
@@ -203,11 +253,27 @@ public class TileConnector : MonoBehaviour
         return lr;
     }
 
+    void SetLineUniformColor(LineRenderer lr, Color c)
+    {
+        var grad = new Gradient();
+        grad.mode = GradientMode.Blend;
+        grad.SetKeys(
+            new GradientColorKey[] { new GradientColorKey(c, 0f), new GradientColorKey(c, 1f) },
+            new GradientAlphaKey[] { new GradientAlphaKey(c.a, 0f), new GradientAlphaKey(c.a, 1f) }
+        );
+        lr.colorGradient = grad;
+    }
+
     void DeselectAll()
     {
         foreach (var v in selectedViews)
-            if (v) v.SetSelected(false, animate:true);
+            if (v) SetViewSafe(v, false);
         selectedViews.Clear();
+    }
+    void SetViewSafe(TileViewDual v, bool sel)
+    {
+        if (!v) return;
+        v.SetSelected(sel, animate:true);
     }
 
     void ClearSegments()
