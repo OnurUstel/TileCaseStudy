@@ -43,6 +43,11 @@ public class TileConnector : MonoBehaviour
     public float revealDuration         = 0.12f;
     public AnimationCurve revealCurve   = AnimationCurve.EaseInOut(0,0,1,1);
 
+    [Header("When tiles vanish")]
+    public bool  hideLineOnVanish   = true;  // patlama başladığında line’ları gizle
+    public bool  destroyLineOnVanish= false; // gizlemek yerine tamamen Destroy et
+    public bool  stopRevealOnVanish = true;  // Reveal coroutine’lerini durdur
+
     [Header("Debug")]
     public bool debug = false;
 
@@ -52,6 +57,16 @@ public class TileConnector : MonoBehaviour
     readonly List<TileViewDual> selectedViews = new();
 
     int revealIndex = 0;
+
+    // ---- Event aboneliği ----
+    void OnEnable()
+    {
+        TileViewDual.OnVanishStarted += HandleVanishStarted;
+    }
+    void OnDisable()
+    {
+        TileViewDual.OnVanishStarted -= HandleVanishStarted;
+    }
 
     void Update()
     {
@@ -145,12 +160,12 @@ public class TileConnector : MonoBehaviour
                     sc.y = rightToLeft ? -Mathf.Abs(sc.y) : Mathf.Abs(sc.y);
                     lr.material.mainTextureScale = sc;
 
-                    // dikiş/seam olmasın (Repeat/Clamp fark etmesin diye)
+                    // dikiş/seam olmasın
                     var off = lr.material.mainTextureOffset;
                     off.y = (sc.y < 0f) ? 1f : 0f;
                     lr.material.mainTextureOffset = off;
 
-                    // çifte flip olmasın diye shader toggleyi sıfırla (varsa)
+                    // olası shader flip'ini sıfırla
                     if (lr.material.HasProperty("_FlipV")) lr.material.SetFloat("_FlipV", 0f);
 
                     if (debug) Debug.Log($"Horiz UV-V {(rightToLeft ? "-1" : "+1")}  scale=({sc.x},{sc.y}) off=({off.x},{off.y})");
@@ -187,13 +202,19 @@ public class TileConnector : MonoBehaviour
             float u = Mathf.Clamp01(t / Mathf.Max(0.0001f, duration));
             if (revealCurve != null) u = revealCurve.Evaluate(u);
 
-            lr.SetPosition(0, a);
-            lr.SetPosition(1, Vector3.Lerp(a, b, u));
+            if (lr)
+            {
+                lr.SetPosition(0, a);
+                lr.SetPosition(1, Vector3.Lerp(a, b, u));
+            }
             yield return null;
         }
 
-        lr.SetPosition(0, a);
-        lr.SetPosition(1, b);
+        if (lr)
+        {
+            lr.SetPosition(0, a);
+            lr.SetPosition(1, b);
+        }
 
         if (autoTile) AutoTileByLength(lr, worldUnitsPerTile, reversed:false);
     }
@@ -303,6 +324,12 @@ public class TileConnector : MonoBehaviour
         segments.Clear();
     }
 
+    void DisableSegments()
+    {
+        foreach (var lr in segments)
+            if (lr) lr.enabled = false;
+    }
+
     Vector3 EdgePointFromTo(Vector3 fromCenter, Vector3 toCenter, Vector2 half)
     {
         Vector2 dir = (toCenter - fromCenter);
@@ -336,7 +363,7 @@ public class TileConnector : MonoBehaviour
 
     void AutoTileByLength(LineRenderer lr, float unitsPerTile, bool reversed)
     {
-        if (!lr.material || !lr.material.mainTexture) return;
+        if (!lr || !lr.material || !lr.material.mainTexture) return;
 
         float len = 0f;
         for (int i = 1; i < lr.positionCount; i++)
@@ -346,10 +373,23 @@ public class TileConnector : MonoBehaviour
         if (!standardizeUV && reversed) tiles = -tiles;
 
         var scale = lr.material.mainTextureScale;
-        scale.x = tiles;               // X tiling; Y’yi değiştirmiyoruz (R->L için -1 korunur)
+        scale.x = tiles; // X tiling; Y’yi değiştirmiyoruz (R->L için -1 korunur)
         lr.material.mainTextureScale = scale;
         lr.material.mainTexture.wrapMode = TextureWrapMode.Repeat;
     }
 
     void Swap(ref Vector3 a, ref Vector3 b) { var t = a; a = b; b = t; }
+
+    // ---- Patlama BAŞLADIĞI anda çağrılır ----
+    void HandleVanishStarted()
+    {
+        if (!hideLineOnVanish) return;
+
+        if (stopRevealOnVanish) StopAllCoroutines();
+
+        if (destroyLineOnVanish) ClearSegments();
+        else                    DisableSegments();
+
+        if (debug) Debug.Log("[TileConnector] Vanish started → lines " + (destroyLineOnVanish ? "destroyed" : "disabled"));
+    }
 }
