@@ -7,19 +7,21 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: LineVertical
-  m_Shader: {fileID: 4800000, guid: e260cfa7296ee7642b167f1eb5be5023, type: 3}
+  m_Name: LineHorizontal
+  m_Shader: {fileID: 4800000, guid: 60759604fe31a7a48804c62d190ac035, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords: []
-  m_InvalidKeywords: []
+  m_InvalidKeywords:
+  - _MASKBYALPHA_ON
+  - _SHEENON_ON
   m_LightmapFlags: 4
   m_EnableInstancingVariants: 0
   m_DoubleSidedGI: 0
   m_CustomRenderQueue: -1
   stringTagMap: {}
   disabledShaderPasses: []
-  m_LockedProperties: 
+  m_LockedProperties: _ColorA
   m_SavedProperties:
     serializedVersion: 3
     m_TexEnvs:
@@ -27,8 +29,12 @@ Material:
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
+    - _GradientTex:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     - _MainTex:
-        m_Texture: {fileID: 2800000, guid: 51433835665dba2459d00e32946cb548, type: 3}
+        m_Texture: {fileID: 2800000, guid: 25d587740bbebaf43b7f6fe803c17fea, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _MaskTex:
@@ -42,11 +48,34 @@ Material:
     m_Ints: []
     m_Floats:
     - PixelSnap: 0
+    - _AlphaMul: 1
+    - _BloomBoost: 1
     - _EnableExternalAlpha: 0
+    - _End: 0.9
+    - _FlipV: 0
+    - _Gamma: 4
+    - _Glossiness: 0.5
+    - _MapMode: 1
+    - _MaskByAlpha: 1
+    - _Metallic: 0
+    - _MidAB: 1
+    - _MidBC: 1
+    - _SheenIntensity: 1.22
+    - _SheenOn: 1
+    - _SheenPos: 0
+    - _SheenWidth: 0.1
+    - _Smooth: 0.2
+    - _Start: 0.2
+    - _UseGradientTex: 0
     - _ZWrite: 0
     m_Colors:
     - _Color: {r: 1, g: 1, b: 1, a: 1}
+    - _ColorA: {r: 1, g: 1, b: 1, a: 1}
+    - _ColorB: {r: 0.9921569, g: 0.7372549, b: 0.32941177, a: 1}
+    - _ColorC: {r: 0.5999999, g: 0.41154978, b: 0.26603767, a: 1}
     - _Flip: {r: 1, g: 1, b: 1, a: 1}
     - _RendererColor: {r: 1, g: 1, b: 1, a: 1}
+    - _SheenColor: {r: 0.9622642, g: 0.89784193, b: 0.695372, a: 1}
+    - _Tint: {r: 0.98823535, g: 0.7372549, b: 0.32941177, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1
