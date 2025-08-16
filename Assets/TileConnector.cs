@@ -18,7 +18,7 @@ public class TileConnector : MonoBehaviour
     [Header("Extra Shorten (edgeInset sonrası)")]
     public bool  enableShorten   = true;
     [Range(0f, 0.9f)]
-    public float shortenPercent  = 0.20f;   // segment uzunluğunun yüzdesi (toplam), uçlardan eşit pay
+    public float shortenPercent  = 0.20f;
 
     [Header("Auto Tiling")]
     public bool autoTile = true;
@@ -39,9 +39,9 @@ public class TileConnector : MonoBehaviour
 
     [Header("Draw Reveal FX")]
     public bool  revealEnabled          = true;
-    public float revealDelayPerSegment  = 0.03f;          // Inspector
-    public float revealDuration         = 0.12f;          // Inspector
-    public AnimationCurve revealCurve   = AnimationCurve.EaseInOut(0,0,1,1); // Inspector
+    public float revealDelayPerSegment  = 0.03f;
+    public float revealDuration         = 0.12f;
+    public AnimationCurve revealCurve   = AnimationCurve.EaseInOut(0,0,1,1);
 
     [Header("Debug")]
     public bool debug = false;
@@ -111,18 +111,16 @@ public class TileConnector : MonoBehaviour
                 Vector3 pA = EdgePointFromTo(prev.position, curr.position, prevHalf);
                 Vector3 pB = EdgePointFromTo(curr.position, prev.position, currHalf);
 
-                // Ek kısaltma uygula (edgeInset sonrasında)
+                // Ek kısaltma
                 if (enableShorten) ApplyAdditionalShorten(ref pA, ref pB, shortenPercent);
 
-                // ▶ Animasyon YÖNÜ (her zaman prev -> curr)
+                // Animasyon yönü
                 Vector3 animStart = pA;
                 Vector3 animEnd   = pB;
 
-                // ▼ UV/tiling standardizasyonu (kopyalar)
-                Vector3 aStd = pA;
-                Vector3 bStd = pB;
+                // UV standardizasyonu (sadece materyal seçimi & x-tiling için)
+                Vector3 aStd = pA, bStd = pB;
                 bool reversedForUV = false;
-
                 if (standardizeUV)
                 {
                     Vector2 d = bStd - aStd;
@@ -137,15 +135,31 @@ public class TileConnector : MonoBehaviour
                 }
 
                 Material pickedMat = PickMaterial(aStd, bStd);
-
                 LineRenderer lr = CreateSegment(pickedMat);
+
+                // >>>>>> SADECE HORIZONTAL: sağdan→sola ise V scale = -1, soldan→sağa ise +1
+                if (pickedMat == matHorizontal && lr.material)
+                {
+                    bool rightToLeft = curr.position.x < prev.position.x; // prev->curr
+                    var sc = lr.material.mainTextureScale;
+                    sc.y = rightToLeft ? -Mathf.Abs(sc.y) : Mathf.Abs(sc.y);
+                    lr.material.mainTextureScale = sc;
+
+                    // dikiş/seam olmasın (Repeat/Clamp fark etmesin diye)
+                    var off = lr.material.mainTextureOffset;
+                    off.y = (sc.y < 0f) ? 1f : 0f;
+                    lr.material.mainTextureOffset = off;
+
+                    // çifte flip olmasın diye shader toggleyi sıfırla (varsa)
+                    if (lr.material.HasProperty("_FlipV")) lr.material.SetFloat("_FlipV", 0f);
+
+                    if (debug) Debug.Log($"Horiz UV-V {(rightToLeft ? "-1" : "+1")}  scale=({sc.x},{sc.y}) off=({off.x},{off.y})");
+                }
 
                 if (revealEnabled)
                 {
-                    // Görünmez başla
                     lr.SetPosition(0, animStart);
                     lr.SetPosition(1, animStart);
-
                     float delay = revealDelayPerSegment * revealIndex++;
                     StartCoroutine(RevealSegmentRoutine(lr, animStart, animEnd, delay, revealDuration));
                 }
@@ -305,16 +319,14 @@ public class TileConnector : MonoBehaviour
 
     void ApplyAdditionalShorten(ref Vector3 a, ref Vector3 b, float totalPercent)
     {
-        // totalPercent: 0..0.9 arası -> toplam kısalma yüzdesi
         totalPercent = Mathf.Clamp01(totalPercent);
         if (totalPercent <= 0f) return;
 
         float len = Vector3.Distance(a, b);
         if (len <= 1e-6f) return;
 
-        // Her uçtan eşit pay: toplamın yarısını uçlara uygula
         float cutPerEnd = (len * totalPercent) * 0.5f;
-        cutPerEnd = Mathf.Min(cutPerEnd, len * 0.49f); // güvenlik
+        cutPerEnd = Mathf.Min(cutPerEnd, len * 0.49f);
 
         Vector3 dir = (b - a) / len;
 
@@ -334,7 +346,7 @@ public class TileConnector : MonoBehaviour
         if (!standardizeUV && reversed) tiles = -tiles;
 
         var scale = lr.material.mainTextureScale;
-        scale.x = tiles;
+        scale.x = tiles;               // X tiling; Y’yi değiştirmiyoruz (R->L için -1 korunur)
         lr.material.mainTextureScale = scale;
         lr.material.mainTexture.wrapMode = TextureWrapMode.Repeat;
     }
